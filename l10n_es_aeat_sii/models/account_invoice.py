@@ -933,6 +933,7 @@ class AccountInvoice(models.Model):
 
     @api.multi
     def _connect_sii(self, mapping_key):
+        _logger.error(('_connect_sii'))
         self.ensure_one()
         params = self._connect_params_sii(mapping_key)
         today = fields.Date.today()
@@ -948,6 +949,7 @@ class AccountInvoice(models.Model):
             ('date_end', '>=', today),
             ('state', '=', 'active'),
         ], limit=1)
+        _logger.error(('_connect_sii sii_config', sii_config))
         if sii_config:
             public_crt = sii_config.public_key
             private_key = sii_config.private_key
@@ -956,13 +958,18 @@ class AccountInvoice(models.Model):
                 'l10n_es_aeat_sii.publicCrt', False)
             private_key = self.env['ir.config_parameter'].sudo().get_param(
                 'l10n_es_aeat_sii.privateKey', False)
+        _logger.error(('_connect_sii public_crt', public_crt))
+        _logger.error(('_connect_sii private_key', private_key))
         session = Session()
         session.cert = (public_crt, private_key)
+        _logger.error(('_connect_sii session.cert', session.cert))
         transport = Transport(session=session)
+        _logger.error(('_connect_sii transport', session.transport))
         history = HistoryPlugin()
         client = Client(
             wsdl=params['wsdl'], transport=transport, plugins=[history],
         )
+        _logger.error(('_connect_sii client', client))
         return self._bind_sii(client, params['port_name'], params['address'])
 
     @api.multi
@@ -1001,30 +1008,40 @@ class AccountInvoice(models.Model):
         for invoice in self.filtered(
             lambda i: i.state in SII_VALID_INVOICE_STATES
         ):
+            _logger.error(('_send_invoice_to_sii invoice', invoice))
             serv = invoice._connect_sii(invoice.type)
+            _logger.error(('_send_invoice_to_sii serv', serv))
             if invoice.sii_state == 'not_sent':
                 tipo_comunicacion = 'A0'
             else:
                 tipo_comunicacion = 'A1'
             header = invoice._get_sii_header(tipo_comunicacion)
+            _logger.error(('_send_invoice_to_sii header', header))
             inv_vals = {
                 'sii_header_sent': json.dumps(header, indent=4),
             }
+            _logger.error(('_send_invoice_to_sii BEFORE HEADER'))
             try:
                 inv_dict = invoice._get_sii_invoice_dict()
+                _logger.error(('_send_invoice_to_sii inv_dict', inv_dict))
                 inv_vals['sii_content_sent'] = json.dumps(inv_dict, indent=4)
                 if invoice.type in ['out_invoice', 'out_refund']:
+                    _logger.error(('_send_invoice_to_sii SuministroLRFacturasEmitidas'))
                     res = serv.SuministroLRFacturasEmitidas(
                         header, inv_dict)
+                    _logger.error(('_send_invoice_to_sii SuministroLRFacturasEmitidas res_line', res))
                 elif invoice.type in ['in_invoice', 'in_refund']:
+                    _logger.error(('_send_invoice_to_sii SuministroLRFacturasRecibidas'))
                     res = serv.SuministroLRFacturasRecibidas(
                         header, inv_dict)
+                    _logger.error(('_send_invoice_to_sii SuministroLRFacturasRecibidas res_line', res))
                 # TODO Facturas intracomunitarias 66 RIVA
                 # elif invoice.fiscal_position_id.id == self.env.ref(
                 #     'account.fp_intra').id:
                 #     res = serv.SuministroLRDetOperacionIntracomunitaria(
                 #         header, invoices)
                 res_line = res['RespuestaLinea'][0]
+                _logger.error(('_send_invoice_to_sii EstadoEnvio', res['EstadoEnvio']))
                 if res['EstadoEnvio'] == 'Correcto':
                     inv_vals.update({
                         'sii_state': 'sent',
@@ -1040,6 +1057,8 @@ class AccountInvoice(models.Model):
                     })
                 else:
                     inv_vals['sii_send_failed'] = True
+
+                _logger.error(('_send_invoice_to_sii inv_vals', inv_vals))
                 if ('sii_state' in inv_vals and
                         not invoice.sii_account_registration_date and
                         invoice.type[:2] == 'in'):
@@ -1053,8 +1072,10 @@ class AccountInvoice(models.Model):
                         str(res_line['CodigoErrorRegistro']),
                         str(res_line['DescripcionErrorRegistro'])[:60])
                 inv_vals['sii_send_error'] = send_error
+                _logger.error(('_send_invoice_to_sii inv_vals2', inv_vals))
                 invoice.write(inv_vals)
             except Exception as fault:
+                _logger.error(('_send_invoice_to_sii EXCEPT'))
                 new_cr = Registry(self.env.cr.dbname).cursor()
                 env = api.Environment(new_cr, self.env.uid, self.env.context)
                 invoice = env['account.invoice'].browse(invoice.id)
