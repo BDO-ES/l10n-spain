@@ -964,7 +964,7 @@ class AccountInvoice(models.Model):
         session.cert = (public_crt, private_key)
         _logger.error(('_connect_sii session.cert', session.cert))
         transport = Transport(session=session)
-        _logger.error(('_connect_sii transport', session.transport))
+        _logger.error(('_connect_sii transport', transport))
         history = HistoryPlugin()
         client = Client(
             wsdl=params['wsdl'], transport=transport, plugins=[history],
